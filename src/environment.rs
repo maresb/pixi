@@ -199,6 +199,7 @@ pub(crate) fn write_environment_file(
 ///     1. It verifies that the prefix location is unchanged.
 ///     2. It verifies that the system requirements are met.
 ///     3. It verifies the absence of the `env` folder.
+///     4. It verifies that the prefix contains a `.gitignore` file.
 pub async fn sanity_check_project(project: &Project) -> miette::Result<()> {
     // Sanity check of prefix location
     verify_prefix_location_unchanged(project.default_environment().dir().as_path()).await?;
@@ -214,6 +215,18 @@ pub async fn sanity_check_project(project: &Project) -> miette::Result<()> {
         );
     }
 
+    ensure_gitignore_file(project.pixi_dir().as_path()).await?;
+
+    Ok(())
+}
+
+/// Ensure that the `.gitignore` file exists in the `.pixi/` directory.
+/// If not, create it with a catch all pattern.
+async fn ensure_gitignore_file(pixi_dir: &Path) -> miette::Result<()> {
+    let gitignore_path = pixi_dir.join(".gitignore");
+    if !gitignore_path.exists() {
+        std::fs::write(gitignore_path, "*\n").into_diagnostic()?;
+    }
     Ok(())
 }
 
