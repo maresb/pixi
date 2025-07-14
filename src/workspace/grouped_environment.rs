@@ -75,6 +75,18 @@ impl<'p> GroupedEnvironment<'p> {
         }
     }
 
+    /// Returns the combined dependencies for this grouped environment.
+    ///
+    /// For solve groups, this delegates to the solve group's custom implementation
+    /// that filters dependencies based on platform availability.
+    /// For individual environments, this returns the environment's dependencies.
+    pub(crate) fn combined_dependencies(&self, platform: Option<Platform>) -> pixi_manifest::CondaDependencies {
+        match self {
+            GroupedEnvironment::Group(group) => group.combined_dependencies(platform),
+            GroupedEnvironment::Environment(env) => env.combined_dependencies(platform),
+        }
+    }
+
     /// Constructs a `GroupedEnvironment` from a `GroupedEnvironmentName`.
     pub(crate) fn from_name(project: &'p Workspace, name: &GroupedEnvironmentName) -> Option<Self> {
         match name {

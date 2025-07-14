@@ -767,27 +767,25 @@ async fn test_disabled_mapping() {
 
 #[tokio::test]
 async fn test_solve_group_platform_intersection() {
-    // This test reproduces the issue described in the bug report:
-    // https://github.com/prefix-dev/pixi/issues/1234
-    //
-    // The issue occurs when:
-    // 1. There are >=2 environments with the same solve group
-    // 2. A strict subset of the environments reference a feature whose `platforms` is a strict subset of the project's `platforms`
-    // 3. At least one dependency in this feature is not available for all of the project's `platforms`
+    // This test reproduces the issue described by @maresb with jaxlib:
+    // - A solve group with common packages and versions for all applicable platforms
+    // - jaxlib is available on linux-64 and osx-arm64 but not on win-64
+    // - Environments should be able to exclude jaxlib on win-64 while maintaining version consistency
     
     let mut package_database = PackageDatabase::default();
 
-    // Add a package `numpy` that's available on all platforms
-    package_database.add_package(Package::build("numpy", "1.0").finish());
+    // Add common packages that are available on all platforms
+    package_database.add_package(Package::build("numpy", "1.24.0").finish());
+    package_database.add_package(Package::build("python", "3.9.0").finish());
     
-    // Add a package `kubernetes-kind` that's only available on linux-64 and osx-arm64
+    // Add jaxlib that's only available on linux-64 and osx-arm64
     package_database.add_package(
-        Package::build("kubernetes-kind", "1.0")
+        Package::build("jaxlib", "0.4.0")
             .with_subdir(Platform::Linux64)
             .finish(),
     );
     package_database.add_package(
-        Package::build("kubernetes-kind", "1.0")
+        Package::build("jaxlib", "0.4.0")
             .with_subdir(Platform::OsxArm64)
             .finish(),
     );
@@ -804,67 +802,72 @@ async fn test_solve_group_platform_intersection() {
     let pixi = PixiControl::from_manifest(&format!(
         r#"
     [project]
-    name = "pixitest"
+    name = "jaxlib-test"
     channels = ["{channel}"]
     platforms = ["linux-64", "osx-arm64", "win-64"]
 
     [dependencies]
-    numpy = "*"
+    python = "3.9"
+    numpy = "1.24"
 
-    [feature.feat1]
+    [feature.jax]
     platforms = ["linux-64", "osx-arm64"]
-    [feature.feat1.dependencies]
-    kubernetes-kind = "*"
+    [feature.jax.dependencies]
+    jaxlib = "0.4"
 
     [environments]
-    env1 = {{ solve-group = "prod" }}
-    env2 = {{ features = ["feat1"], solve-group = "prod" }}
+    default = {{ solve-group = "main" }}
+    jax = {{ features = ["jax"], solve-group = "main" }}
     "#
     ))
     .unwrap();
 
-    // This should succeed now with the fix
+    // This should succeed with the fix
     let lock_file = pixi.update_lock_file().await.unwrap();
 
-    // Verify that env1 has numpy for all platforms
+    // Verify that default environment has common packages for all platforms
     assert!(
-        lock_file.contains_match_spec("env1", Platform::Linux64, "numpy"),
-        "env1 should have numpy on linux-64"
+        lock_file.contains_match_spec("default", Platform::Linux64, "numpy"),
+        "default should have numpy on linux-64"
     );
     assert!(
-        lock_file.contains_match_spec("env1", Platform::OsxArm64, "numpy"),
-        "env1 should have numpy on osx-arm64"
+        lock_file.contains_match_spec("default", Platform::OsxArm64, "numpy"),
+        "default should have numpy on osx-arm64"
     );
     assert!(
-        lock_file.contains_match_spec("env1", Platform::Win64, "numpy"),
-        "env1 should have numpy on win-64"
+        lock_file.contains_match_spec("default", Platform::Win64, "numpy"),
+        "default should have numpy on win-64"
     );
     assert!(
-        !lock_file.contains_match_spec("env1", Platform::Linux64, "kubernetes-kind"),
-        "env1 should not have kubernetes-kind"
+        !lock_file.contains_match_spec("default", Platform::Linux64, "jaxlib"),
+        "default should not have jaxlib"
     );
 
-    // Verify that env2 has numpy and kubernetes-kind only for supported platforms
+    // Verify that jax environment has common packages for all platforms plus jaxlib only for supported platforms
     assert!(
-        lock_file.contains_match_spec("env2", Platform::Linux64, "numpy"),
-        "env2 should have numpy on linux-64"
+        lock_file.contains_match_spec("jax", Platform::Linux64, "numpy"),
+        "jax should have numpy on linux-64"
     );
     assert!(
-        lock_file.contains_match_spec("env2", Platform::OsxArm64, "numpy"),
-        "env2 should have numpy on osx-arm64"
+        lock_file.contains_match_spec("jax", Platform::OsxArm64, "numpy"),
+        "jax should have numpy on osx-arm64"
     );
     assert!(
-        lock_file.contains_match_spec("env2", Platform::Linux64, "kubernetes-kind"),
-        "env2 should have kubernetes-kind on linux-64"
+        lock_file.contains_match_spec("jax", Platform::Win64, "numpy"),
+        "jax should have numpy on win-64"
     );
     assert!(
-        lock_file.contains_match_spec("env2", Platform::OsxArm64, "kubernetes-kind"),
-        "env2 should have kubernetes-kind on osx-arm64"
+        lock_file.contains_match_spec("jax", Platform::Linux64, "jaxlib"),
+        "jax should have jaxlib on linux-64"
+    );
+    assert!(
+        lock_file.contains_match_spec("jax", Platform::OsxArm64, "jaxlib"),
+        "jax should have jaxlib on osx-arm64"
     );
     
-    // Verify that env2 does not have kubernetes-kind on win-64 (where it's not available)
+    // Verify that jax environment does not have jaxlib on win-64 (where it's not available)
     assert!(
-        !lock_file.contains_match_spec("env2", Platform::Win64, "kubernetes-kind"),
-        "env2 should not have kubernetes-kind on win-64"
+        !lock_file.contains_match_spec("jax", Platform::Win64, "jaxlib"),
+        "jax should not have jaxlib on win-64"
     );
 }
