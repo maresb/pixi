@@ -64,16 +64,7 @@ impl<'p> GroupedEnvironment<'p> {
         }
     }
 
-    /// Returns the platforms that this grouped environment supports.
-    ///
-    /// For solve groups, this returns the union of all environment platforms.
-    /// For individual environments, this returns the environment's platforms.
-    pub(crate) fn platforms(&self) -> std::collections::HashSet<Platform> {
-        match self {
-            GroupedEnvironment::Group(group) => group.platforms(),
-            GroupedEnvironment::Environment(env) => env.platforms(),
-        }
-    }
+
 
     /// Returns the combined dependencies for this grouped environment.
     ///
