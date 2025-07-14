@@ -269,7 +269,16 @@ async fn find_unsatisfiable_targets<'p>(
 
     // Verify grouped environments
     for solve_group in project.solve_groups() {
-        'platform: for platform in solve_group.platforms() {
+        // Calculate the intersection of platforms supported by all environments in the solve group
+        let group_platforms = solve_group
+            .environments()
+            .map(|env| env.platforms())
+            .reduce(|accumulated_platforms, env_platforms| {
+                accumulated_platforms.intersection(&env_platforms).copied().collect()
+            })
+            .unwrap_or_default();
+        
+        'platform: for platform in group_platforms {
             let mut envs = Vec::with_capacity(solve_group.environments().len());
             for env in solve_group.environments() {
                 if let Some(verified_env) = verified_environments.remove(&(env, platform)) {
@@ -380,10 +389,17 @@ fn find_inconsistent_solve_groups<'p>(
 ) {
     let solve_groups = project.solve_groups();
     let solve_groups_and_platforms = solve_groups.iter().flat_map(|solve_group| {
-        solve_group
+        // Calculate the intersection of platforms supported by all environments in the solve group
+        let group_platforms = solve_group
             .environments()
-            .flat_map(|env| env.platforms())
-            .unique()
+            .map(|env| env.platforms())
+            .reduce(|accumulated_platforms, env_platforms| {
+                accumulated_platforms.intersection(&env_platforms).copied().collect()
+            })
+            .unwrap_or_default();
+        
+        group_platforms
+            .into_iter()
             .map(move |platform| (solve_group, platform))
     });
 

@@ -764,3 +764,102 @@ async fn test_disabled_mapping() {
     assert_eq!(boltons_first_purl.name(), "boltons");
     assert!(boltons_first_purl.qualifiers().is_empty());
 }
+
+#[tokio::test]
+async fn test_solve_group_platform_intersection() {
+    // This test reproduces the issue described in the bug report:
+    // https://github.com/prefix-dev/pixi/issues/1234
+    //
+    // The issue occurs when:
+    // 1. There are >=2 environments with the same solve group
+    // 2. A strict subset of the environments reference a feature whose `platforms` is a strict subset of the project's `platforms`
+    // 3. At least one dependency in this feature is not available for all of the project's `platforms`
+    
+    let mut package_database = PackageDatabase::default();
+
+    // Add a package `numpy` that's available on all platforms
+    package_database.add_package(Package::build("numpy", "1.0").finish());
+    
+    // Add a package `kubernetes-kind` that's only available on linux-64 and osx-arm64
+    package_database.add_package(
+        Package::build("kubernetes-kind", "1.0")
+            .with_platforms(vec![Platform::Linux64, Platform::OsxArm64])
+            .finish(),
+    );
+
+    // Write the repodata to disk
+    let channel_dir = TempDir::new().unwrap();
+    package_database
+        .write_repodata(channel_dir.path())
+        .await
+        .unwrap();
+
+    let channel = Url::from_file_path(channel_dir.path()).unwrap();
+    
+    let pixi = PixiControl::from_manifest(&format!(
+        r#"
+    [project]
+    name = "pixitest"
+    channels = ["{channel}"]
+    platforms = ["linux-64", "osx-arm64", "win-64"]
+
+    [dependencies]
+    numpy = "*"
+
+    [feature.feat1]
+    platforms = ["linux-64", "osx-arm64"]
+    [feature.feat1.dependencies]
+    kubernetes-kind = "*"
+
+    [environments]
+    env1 = {{ solve-group = "prod" }}
+    env2 = {{ features = ["feat1"], solve-group = "prod" }}
+    "#
+    ))
+    .unwrap();
+
+    // This should succeed now with the fix
+    let lock_file = pixi.update_lock_file().await.unwrap();
+
+    // Verify that env1 has numpy for all platforms
+    assert!(
+        lock_file.contains_match_spec("env1", Platform::Linux64, "numpy"),
+        "env1 should have numpy on linux-64"
+    );
+    assert!(
+        lock_file.contains_match_spec("env1", Platform::OsxArm64, "numpy"),
+        "env1 should have numpy on osx-arm64"
+    );
+    assert!(
+        lock_file.contains_match_spec("env1", Platform::Win64, "numpy"),
+        "env1 should have numpy on win-64"
+    );
+    assert!(
+        !lock_file.contains_match_spec("env1", Platform::Linux64, "kubernetes-kind"),
+        "env1 should not have kubernetes-kind"
+    );
+
+    // Verify that env2 has numpy and kubernetes-kind only for supported platforms
+    assert!(
+        lock_file.contains_match_spec("env2", Platform::Linux64, "numpy"),
+        "env2 should have numpy on linux-64"
+    );
+    assert!(
+        lock_file.contains_match_spec("env2", Platform::OsxArm64, "numpy"),
+        "env2 should have numpy on osx-arm64"
+    );
+    assert!(
+        lock_file.contains_match_spec("env2", Platform::Linux64, "kubernetes-kind"),
+        "env2 should have kubernetes-kind on linux-64"
+    );
+    assert!(
+        lock_file.contains_match_spec("env2", Platform::OsxArm64, "kubernetes-kind"),
+        "env2 should have kubernetes-kind on osx-arm64"
+    );
+    
+    // Verify that env2 does not have kubernetes-kind on win-64 (where it's not available)
+    assert!(
+        !lock_file.contains_match_spec("env2", Platform::Win64, "kubernetes-kind"),
+        "env2 should not have kubernetes-kind on win-64"
+    );
+}
