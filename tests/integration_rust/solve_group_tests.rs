@@ -843,7 +843,7 @@ async fn test_solve_group_platform_intersection() {
         "default should not have jaxlib"
     );
 
-    // Verify that jax environment has common packages for all platforms plus jaxlib only for supported platforms
+    // Verify that jax environment has common packages for supported platforms plus jaxlib only for supported platforms
     assert!(
         lock_file.contains_match_spec("jax", Platform::Linux64, "numpy"),
         "jax should have numpy on linux-64"
@@ -852,9 +852,10 @@ async fn test_solve_group_platform_intersection() {
         lock_file.contains_match_spec("jax", Platform::OsxArm64, "numpy"),
         "jax should have numpy on osx-arm64"
     );
+    // Note: jax environment doesn't have numpy on win-64 because its feature only supports linux-64 and osx-arm64
     assert!(
-        lock_file.contains_match_spec("jax", Platform::Win64, "numpy"),
-        "jax should have numpy on win-64"
+        !lock_file.contains_match_spec("jax", Platform::Win64, "numpy"),
+        "jax should not have numpy on win-64 because its feature doesn't support win-64"
     );
     assert!(
         lock_file.contains_match_spec("jax", Platform::Linux64, "jaxlib"),
