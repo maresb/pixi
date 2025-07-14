@@ -71,6 +71,33 @@ impl<'p> SolveGroup<'p> {
             .collect()
     }
 
+    /// Returns the combined dependencies for this solve group, filtered by platform.
+    ///
+    /// For solve groups, this method filters dependencies based on platform availability.
+    /// Only dependencies that are available for the specified platform are included.
+    /// This ensures that the solve group can be solved for each platform individually
+    /// while maintaining version consistency across environments.
+    pub(crate) fn combined_dependencies(&self, platform: Option<Platform>) -> pixi_manifest::CondaDependencies {
+        match platform {
+            Some(target_platform) => {
+                // For a specific platform, only include dependencies from environments
+                // that support that platform
+                self.environments()
+                    .filter(|env| env.platforms().contains(&target_platform))
+                    .map(|env| env.combined_dependencies(Some(target_platform)))
+                    .fold(pixi_manifest::CondaDependencies::default(), |acc, deps| {
+                        acc.overwrite(&deps)
+                    })
+            }
+            None => {
+                // For no specific platform, include all dependencies (fallback to default behavior)
+                self.features()
+                    .filter_map(|f| f.combined_dependencies(None))
+                    .into()
+            }
+        }
+    }
+
     /// Returns the system requirements for this solve group.
     ///
     /// The system requirements of the solve group are the union of the system
