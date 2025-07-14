@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use fancy_display::FancyDisplay;
-use itertools::Itertools;
 use pixi_consts::consts;
 use pixi_manifest::FeaturesExt;
 use rattler_conda_types::Platform;
@@ -380,10 +379,10 @@ fn find_inconsistent_solve_groups<'p>(
 ) {
     let solve_groups = project.solve_groups();
     let solve_groups_and_platforms = solve_groups.iter().flat_map(|solve_group| {
+        // Use the solve group's platforms (union of all environment platforms)
         solve_group
-            .environments()
-            .flat_map(|env| env.platforms())
-            .unique()
+            .platforms()
+            .into_iter()
             .map(move |platform| (solve_group, platform))
     });
 

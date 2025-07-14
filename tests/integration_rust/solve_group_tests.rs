@@ -764,3 +764,111 @@ async fn test_disabled_mapping() {
     assert_eq!(boltons_first_purl.name(), "boltons");
     assert!(boltons_first_purl.qualifiers().is_empty());
 }
+
+#[tokio::test]
+async fn test_solve_group_platform_intersection() {
+    // This test reproduces the issue described by @maresb with jaxlib:
+    // - A solve group with common packages and versions for all applicable platforms
+    // - jaxlib is available on linux-64 and osx-arm64 but not on win-64
+    // - Environments should be able to exclude jaxlib on win-64 while maintaining version consistency
+    
+    let mut package_database = PackageDatabase::default();
+
+    // Add common packages that are available on all platforms
+    package_database.add_package(Package::build("numpy", "1.24.0").finish());
+    package_database.add_package(Package::build("python", "3.9.0").finish());
+    
+    // Add jaxlib that's only available on linux-64 and osx-arm64
+    package_database.add_package(
+        Package::build("jaxlib", "0.4.0")
+            .with_subdir(Platform::Linux64)
+            .finish(),
+    );
+    package_database.add_package(
+        Package::build("jaxlib", "0.4.0")
+            .with_subdir(Platform::OsxArm64)
+            .finish(),
+    );
+
+    // Write the repodata to disk
+    let channel_dir = TempDir::new().unwrap();
+    package_database
+        .write_repodata(channel_dir.path())
+        .await
+        .unwrap();
+
+    let channel = Url::from_file_path(channel_dir.path()).unwrap();
+    
+    let pixi = PixiControl::from_manifest(&format!(
+        r#"
+    [project]
+    name = "jaxlib-test"
+    channels = ["{channel}"]
+    platforms = ["linux-64", "osx-arm64", "win-64"]
+
+    [dependencies]
+    python = "3.9"
+    numpy = "1.24"
+
+    [feature.jax]
+    platforms = ["linux-64", "osx-arm64"]
+    [feature.jax.dependencies]
+    jaxlib = "0.4"
+
+    [environments]
+    default = {{ solve-group = "main" }}
+    jax = {{ features = ["jax"], solve-group = "main" }}
+    "#
+    ))
+    .unwrap();
+
+    // This should succeed with the fix
+    let lock_file = pixi.update_lock_file().await.unwrap();
+
+    // Verify that default environment has common packages for all platforms
+    assert!(
+        lock_file.contains_match_spec("default", Platform::Linux64, "numpy"),
+        "default should have numpy on linux-64"
+    );
+    assert!(
+        lock_file.contains_match_spec("default", Platform::OsxArm64, "numpy"),
+        "default should have numpy on osx-arm64"
+    );
+    assert!(
+        lock_file.contains_match_spec("default", Platform::Win64, "numpy"),
+        "default should have numpy on win-64"
+    );
+    assert!(
+        !lock_file.contains_match_spec("default", Platform::Linux64, "jaxlib"),
+        "default should not have jaxlib"
+    );
+
+    // Verify that jax environment has common packages for supported platforms plus jaxlib only for supported platforms
+    assert!(
+        lock_file.contains_match_spec("jax", Platform::Linux64, "numpy"),
+        "jax should have numpy on linux-64"
+    );
+    assert!(
+        lock_file.contains_match_spec("jax", Platform::OsxArm64, "numpy"),
+        "jax should have numpy on osx-arm64"
+    );
+    // Note: jax environment doesn't have numpy on win-64 because its feature only supports linux-64 and osx-arm64
+    assert!(
+        !lock_file.contains_match_spec("jax", Platform::Win64, "numpy"),
+        "jax should not have numpy on win-64 because its feature doesn't support win-64"
+    );
+    assert!(
+        lock_file.contains_match_spec("jax", Platform::Linux64, "jaxlib"),
+        "jax should have jaxlib on linux-64"
+    );
+    assert!(
+        lock_file.contains_match_spec("jax", Platform::OsxArm64, "jaxlib"),
+        "jax should have jaxlib on osx-arm64"
+    );
+    
+    // Verify that jax environment does not have jaxlib on win-64 (where it's not available)
+    assert!(
+        !lock_file.contains_match_spec("jax", Platform::Win64, "jaxlib"),
+        "jax should not have jaxlib on win-64"
+    );
+}
