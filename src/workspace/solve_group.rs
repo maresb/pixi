@@ -5,6 +5,7 @@ use pixi_manifest as manifest;
 use pixi_manifest::{
     FeaturesExt, HasFeaturesIter, HasWorkspaceManifest, SystemRequirements, WorkspaceManifest,
 };
+use rattler_conda_types::Platform;
 
 use super::{Environment, HasWorkspaceRef, Workspace};
 
@@ -57,6 +58,19 @@ impl<'p> SolveGroup<'p> {
             Environment::new(self.workspace, &workspace_manifest.environments[*env_idx])
         })
     }
+
+    /// Returns the platforms that this solve group supports.
+    ///
+    /// The platforms supported by a solve group is the union of the platforms
+    /// supported by all environments in the solve group. This allows each
+    /// environment to have platform-specific dependencies while maintaining
+    /// version consistency across the solve group.
+    pub(crate) fn platforms(&self) -> std::collections::HashSet<Platform> {
+        self.environments()
+            .flat_map(|env| env.platforms())
+            .collect()
+    }
+
     /// Returns the system requirements for this solve group.
     ///
     /// The system requirements of the solve group are the union of the system

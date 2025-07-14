@@ -783,7 +783,12 @@ async fn test_solve_group_platform_intersection() {
     // Add a package `kubernetes-kind` that's only available on linux-64 and osx-arm64
     package_database.add_package(
         Package::build("kubernetes-kind", "1.0")
-            .with_platforms(vec![Platform::Linux64, Platform::OsxArm64])
+            .with_subdir(Platform::Linux64)
+            .finish(),
+    );
+    package_database.add_package(
+        Package::build("kubernetes-kind", "1.0")
+            .with_subdir(Platform::OsxArm64)
             .finish(),
     );
 

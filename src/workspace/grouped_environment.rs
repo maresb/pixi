@@ -5,7 +5,7 @@ use fancy_display::FancyDisplay;
 use itertools::Either;
 use pixi_consts::consts;
 use pixi_manifest::{
-    EnvironmentName, Feature, HasFeaturesIter, HasWorkspaceManifest, SystemRequirements,
+    EnvironmentName, Feature, FeaturesExt, HasFeaturesIter, HasWorkspaceManifest, SystemRequirements,
     WorkspaceManifest,
 };
 use rattler_conda_types::{ChannelConfig, GenericVirtualPackage, Platform};
@@ -61,6 +61,17 @@ impl<'p> GroupedEnvironment<'p> {
         match self {
             GroupedEnvironment::Group(group) => Either::Left(group.environments()),
             GroupedEnvironment::Environment(env) => Either::Right(std::iter::once(env.clone())),
+        }
+    }
+
+    /// Returns the platforms that this grouped environment supports.
+    ///
+    /// For solve groups, this returns the union of all environment platforms.
+    /// For individual environments, this returns the environment's platforms.
+    pub(crate) fn platforms(&self) -> std::collections::HashSet<Platform> {
+        match self {
+            GroupedEnvironment::Group(group) => group.platforms(),
+            GroupedEnvironment::Environment(env) => env.platforms(),
         }
     }
 
