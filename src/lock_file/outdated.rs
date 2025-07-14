@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use fancy_display::FancyDisplay;
-use itertools::Itertools;
 use pixi_consts::consts;
 use pixi_manifest::FeaturesExt;
 use rattler_conda_types::Platform;
@@ -269,10 +268,7 @@ async fn find_unsatisfiable_targets<'p>(
 
     // Verify grouped environments
     for solve_group in project.solve_groups() {
-        // Use the solve group's platforms (union of all environment platforms)
-        let group_platforms = solve_group.platforms();
-        
-        'platform: for platform in group_platforms {
+        'platform: for platform in solve_group.platforms() {
             let mut envs = Vec::with_capacity(solve_group.environments().len());
             for env in solve_group.environments() {
                 if let Some(verified_env) = verified_environments.remove(&(env, platform)) {
